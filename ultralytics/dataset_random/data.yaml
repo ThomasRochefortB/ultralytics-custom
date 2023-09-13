@@ -1,0 +1,9 @@
+# Train/val/test sets as 1) dir: path/to/imgs, 2) file: path/to/imgs.txt, or 3) list: [path/to/imgs1, path/to/imgs2, ..]
+path: /home/thomas/Documents/GitHub/ultralytics-custom/ultralytics/dataset_random # dataset root dir
+train: ./datasets/train  # train images (relative to 'path')
+val: ./datasets/valid  # val images (relative to 'path')
+#test: .datasets/test # test images (optional)
+
+# Classes (1 mmc class)
+names:
+  0: mmc_component

@@ -96,7 +96,7 @@ def verify_image_label(args):
     """Verify one image-label pair."""
     im_file, lb_file, prefix, keypoint, num_cls, nkpt, ndim = args
     # Number (missing, found, empty, corrupt), message, segments, keypoints
-    nm, nf, ne, nc, msg, segments, keypoints = 0, 0, 0, 0, "", [], None
+    nm, nf, ne, nc, msg, segments, keypoints, regression_vars = 0, 0, 0, 0, "", [], None, None
     try:
         # Verify images
         im = Image.open(im_file)
@@ -119,7 +119,8 @@ def verify_image_label(args):
                 lb = [x.split() for x in f.read().strip().splitlines() if len(x)]
                 if any(len(x) > 6 for x in lb) and (not keypoint):  # is segment
                     classes = np.array([x[0] for x in lb], dtype=np.float32)
-                    segments = [np.array(x[1:], dtype=np.float32).reshape(-1, 2) for x in lb]  # (cls, xy1...)
+                    regression_vars = np.array([x[1:7] for x in lb], dtype=np.float32)  # Extract regression variables
+                    segments = [np.array(x[7:], dtype=np.float32).reshape(-1, 2) for x in lb]
                     lb = np.concatenate((classes.reshape(-1, 1), segments2boxes(segments)), 1)  # (cls, xywh)
                 lb = np.array(lb, dtype=np.float32)
             nl = len(lb)
@@ -157,11 +158,11 @@ def verify_image_label(args):
                 kpt_mask = np.where((keypoints[..., 0] < 0) | (keypoints[..., 1] < 0), 0.0, 1.0).astype(np.float32)
                 keypoints = np.concatenate([keypoints, kpt_mask[..., None]], axis=-1)  # (nl, nkpt, 3)
         lb = lb[:, :5]
-        return im_file, lb, shape, segments, keypoints, nm, nf, ne, nc, msg
+        return im_file, lb, shape, segments, regression_vars, keypoints, nm, nf, ne, nc, msg
     except Exception as e:
         nc = 1
         msg = f"{prefix}WARNING ⚠️ {im_file}: ignoring corrupt image/label: {e}"
-        return [None, None, None, None, None, nm, nf, ne, nc, msg]
+        return [None, None, None, None, None,None, nm, nf, ne, nc, msg]
 
 
 def polygon2mask(imgsz, polygons, color=1, downsample_ratio=1):

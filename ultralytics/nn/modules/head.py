@@ -14,7 +14,7 @@ from .conv import Conv
 from .transformer import MLP, DeformableTransformerDecoder, DeformableTransformerDecoderLayer
 from .utils import bias_init_with_prob, linear_init_
 
-__all__ = "Detect", "Segment", "Pose", "Classify", "OBB", "RTDETRDecoder"
+__all__ = 'Detect', 'Segment','ExtendedSegment' ,'Pose', 'Classify', 'RTDETRDecoder'
 
 
 class Detect(nn.Module):
@@ -113,6 +113,40 @@ class Segment(Detect):
             return x, mc, p
         return (torch.cat([x, mc], 1), p) if self.export else (torch.cat([x[0], mc], 1), (x[1], mc, p))
 
+
+class ExtendedSegment(Segment):
+    """Extends the Segment class to add a regression head predicting a 6D vector."""
+
+    def __init__(self, nc=80, nm=32, npr=256, ch=()):
+        super().__init__(nc, nm, npr, ch)
+        self.regression_head = nn.ModuleList(nn.Sequential(
+            Conv(x, max(x // 4, 128), 3),
+            Conv(max(x // 4, 128), max(x // 4, 128), 3),
+            nn.Conv2d(max(x // 4, 128), 6, 1),
+            nn.Sigmoid()) for x in ch)  # Produces a 6D vector for each anchor and applies sigmoid activation
+
+    def forward(self, x):
+        regression_outputs = [self.regression_head[i](x[i]).view(x[i].shape[0], 6, -1) for i in range(self.nl)]
+        regression_tensor = torch.cat(regression_outputs, 2)
+
+        # Call the parent's forward method to get original outputs and masks
+        outputs = super().forward(x)
+
+        if self.training:
+            x, mc, p = outputs
+
+            return x, mc, p, regression_tensor
+
+        else:
+
+            if self.export:
+                out_1, out_2 = outputs
+                return (out_1, out_2, regression_tensor)  
+            else:
+                out_1, out_2 = outputs
+                return ((out_1,regression_tensor), (out_2[0],out_2[1],out_2[2], regression_tensor))
+
+    
 
 class OBB(Detect):
     """YOLOv8 OBB detection head for detection with rotation models."""

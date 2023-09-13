@@ -118,6 +118,7 @@ class BaseValidator:
             self.args.plots &= trainer.stopper.possible_stop or (trainer.epoch == trainer.epochs - 1)
             model.eval()
         else:
+
             callbacks.add_integration_callbacks(self)
             model = AutoBackend(
                 model or self.args.model,
@@ -148,6 +149,8 @@ class BaseValidator:
                 self.args.workers = 0  # faster CPU val as time dominated by inference, not dataloading
             if not pt:
                 self.args.rect = False
+            
+           
             self.stride = model.stride  # used in get_dataloader() for padding
             self.dataloader = self.dataloader or self.get_dataloader(self.data.get(self.args.split), self.args.batch)
 
@@ -165,8 +168,11 @@ class BaseValidator:
         self.init_metrics(de_parallel(model))
         self.jdict = []  # empty before each val
         for batch_i, batch in enumerate(bar):
+
             self.run_callbacks("on_val_batch_start")
             self.batch_i = batch_i
+            if self.args.plots and batch_i < 3:
+                self.plot_val_samples(batch, batch_i)
             # Preprocess
             with dt[0]:
                 batch = self.preprocess(batch)
@@ -186,7 +192,7 @@ class BaseValidator:
 
             self.update_metrics(preds, batch)
             if self.args.plots and batch_i < 3:
-                self.plot_val_samples(batch, batch_i)
+                # self.plot_val_samples(batch, batch_i)
                 self.plot_predictions(batch, preds, batch_i)
 
             self.run_callbacks("on_val_batch_end")

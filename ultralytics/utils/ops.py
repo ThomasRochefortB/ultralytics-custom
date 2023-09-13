@@ -163,6 +163,7 @@ def nms_rotated(boxes, scores, threshold=0.45):
 
 def non_max_suppression(
     prediction,
+    regression_var = None,
     conf_thres=0.25,
     iou_thres=0.45,
     classes=None,
@@ -229,11 +230,18 @@ def non_max_suppression(
 
     t = time.time()
     output = [torch.zeros((0, 6 + nm), device=prediction.device)] * bs
+
+
+    if regression_var is not None:
+        saved_reg_var = [torch.zeros((0, 6), device=prediction.device)] * bs
+        print(regression_var)
+        regression_var = regression_var.transpose(-1, -2)
+
     for xi, x in enumerate(prediction):  # image index, image inference
+        
         # Apply constraints
         # x[((x[:, 2:4] < min_wh) | (x[:, 2:4] > max_wh)).any(1), 4] = 0  # width-height
         x = x[xc[xi]]  # confidence
-
         # Cat apriori labels if autolabelling
         if labels and len(labels[xi]) and not rotated:
             lb = labels[xi]
@@ -241,7 +249,6 @@ def non_max_suppression(
             v[:, :4] = xywh2xyxy(lb[:, 1:5])  # box
             v[range(len(lb)), lb[:, 0].long() + 4] = 1.0  # cls
             x = torch.cat((x, v), 0)
-
         # If none remain process next image
         if not x.shape[0]:
             continue
@@ -289,13 +296,19 @@ def non_max_suppression(
         #     redundant = True  # require redundant detections
         #     if redundant:
         #         i = i[iou.sum(1) > 1]  # require redundancy
-
+        if regression_var is not None:
+            filtered_reg = regression_var[xi][xc[xi]]
+            saved_reg_var[xi] = filtered_reg[i]
         output[xi] = x[i]
         if (time.time() - t) > time_limit:
             LOGGER.warning(f"WARNING ⚠️ NMS time limit {time_limit:.3f}s exceeded")
             break  # time limit exceeded
+    if regression_var is not None:
+        return output, saved_reg_var
+    else:
 
-    return output
+        return output
+
 
 
 def clip_boxes(boxes, shape):
@@ -679,7 +692,7 @@ def process_mask(protos, masks_in, bboxes, shape, upsample=False):
         (torch.Tensor): A binary mask tensor of shape [n, h, w], where n is the number of masks after NMS, and h and w
             are the height and width of the input image. The mask is applied to the bounding boxes.
     """
-
+    
     c, mh, mw = protos.shape  # CHW
     ih, iw = shape
     masks = (masks_in @ protos.float().view(c, -1)).sigmoid().view(-1, mh, mw)  # CHW

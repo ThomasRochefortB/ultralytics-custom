@@ -57,25 +57,17 @@ class YOLODataset(BaseDataset):
         total = len(self.im_files)
         nkpt, ndim = self.data.get("kpt_shape", (0, 0))
         if self.use_keypoints and (nkpt <= 0 or ndim not in (2, 3)):
-            raise ValueError(
-                "'kpt_shape' in data.yaml missing or incorrect. Should be a list with [number of "
-                "keypoints, number of dims (2 for x,y or 3 for x,y,visible)], i.e. 'kpt_shape: [17, 3]'"
-            )
+            raise ValueError("'kpt_shape' in data.yaml missing or incorrect. Should be a list with [number of "
+                            "keypoints, number of dims (2 for x,y or 3 for x,y,visible)], i.e. 'kpt_shape: [17, 3]'")
+        
         with ThreadPool(NUM_THREADS) as pool:
-            results = pool.imap(
-                func=verify_image_label,
-                iterable=zip(
-                    self.im_files,
-                    self.label_files,
-                    repeat(self.prefix),
-                    repeat(self.use_keypoints),
-                    repeat(len(self.data["names"])),
-                    repeat(nkpt),
-                    repeat(ndim),
-                ),
-            )
-            pbar = TQDM(results, desc=desc, total=total)
-            for im_file, lb, shape, segments, keypoint, nm_f, nf_f, ne_f, nc_f, msg in pbar:
+            results = pool.imap(func=verify_image_label,
+                                iterable=zip(self.im_files, self.label_files, repeat(self.prefix),
+                                            repeat(self.use_keypoints), repeat(len(self.data['names'])), repeat(nkpt),
+                                            repeat(ndim)))
+            pbar = tqdm(results, desc=desc, total=total, bar_format=TQDM_BAR_FORMAT)
+            # Change the unpacking here to include regression_vars
+            for im_file, lb, shape, segments, regression_vars, keypoint, nm_f, nf_f, ne_f, nc_f, msg in pbar:
                 nm += nm_f
                 nf += nf_f
                 ne += ne_f
@@ -87,12 +79,14 @@ class YOLODataset(BaseDataset):
                             shape=shape,
                             cls=lb[:, 0:1],  # n, 1
                             bboxes=lb[:, 1:],  # n, 4
+                            regression_vars=regression_vars,  # n, 6
                             segments=segments,
                             keypoints=keypoint,
                             normalized=True,
                             bbox_format="xywh",
                         )
                     )
+                
                 if msg:
                     msgs.append(msg)
                 pbar.desc = f"{desc} {nf} images, {nm + ne} backgrounds, {nc} corrupt"
@@ -156,6 +150,7 @@ class YOLODataset(BaseDataset):
             hyp.mixup = hyp.mixup if self.augment and not self.rect else 0.0
             transforms = v8_transforms(self, self.imgsz, hyp)
         else:
+            
             transforms = Compose([LetterBox(new_shape=(self.imgsz, self.imgsz), scaleup=False)])
         transforms.append(
             Format(

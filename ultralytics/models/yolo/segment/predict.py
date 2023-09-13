@@ -26,25 +26,38 @@ class SegmentationPredictor(DetectionPredictor):
         self.args.task = "segment"
 
     def postprocess(self, preds, img, orig_imgs):
+        #print(preds[0].shape)
+        regression_preds = preds[1][-1]
         """Applies non-max suppression and processes detections for each image in an input batch."""
-        p = ops.non_max_suppression(
+        p, final_reg = ops.non_max_suppression(prediction=
             preds[0],
-            self.args.conf,
-            self.args.iou,
-            agnostic=self.args.agnostic_nms,
-            max_det=self.args.max_det,
-            nc=len(self.model.names),
-            classes=self.args.classes,
+               conf_thres=self.args.conf,
+               iou_thres=self.args.iou,
+               agnostic=self.args.agnostic_nms,
+               max_det=self.args.max_det,
+               nc=len(self.model.names),
+                                       regression_var=regression_preds,
+               classes=self.args.classes,
         )
 
         if not isinstance(orig_imgs, list):  # input images are a torch.Tensor, not a list
             orig_imgs = ops.convert_torch2numpy_batch(orig_imgs)
 
+        #print(p[0].shape)
         results = []
-        proto = preds[1][-1] if len(preds[1]) == 3 else preds[1]  # second output is len 3 if pt, but only 1 if exported
+        if len(preds[1])==3:
+            proto = preds[1][-1]
+        elif len(preds[1])==4:
+            proto = preds[1][-2] 
+        else:
+            proto = preds[1]
+
+        #print(regression_preds.shape)
         for i, pred in enumerate(p):
             orig_img = orig_imgs[i]
             img_path = self.batch[0][i]
+
+            
             if not len(pred):  # save empty boxes
                 masks = None
             elif self.args.retina_masks:
@@ -53,5 +66,5 @@ class SegmentationPredictor(DetectionPredictor):
             else:
                 masks = ops.process_mask(proto[i], pred[:, 6:], pred[:, :4], img.shape[2:], upsample=True)  # HWC
                 pred[:, :4] = ops.scale_boxes(img.shape[2:], pred[:, :4], orig_img.shape)
-            results.append(Results(orig_img, path=img_path, names=self.model.names, boxes=pred[:, :6], masks=masks))
+            results.append(Results(orig_img, path=img_path, names=self.model.names, boxes=pred[:, :6], masks=masks, regression_preds=final_reg[i]))
         return results

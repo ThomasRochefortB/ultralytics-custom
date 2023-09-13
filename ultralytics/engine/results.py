@@ -89,7 +89,7 @@ class Results(SimpleClass):
         _keys (tuple): A tuple of attribute names for non-empty attributes.
     """
 
-    def __init__(self, orig_img, path, names, boxes=None, masks=None, probs=None, keypoints=None, obb=None) -> None:
+    def __init__(self, orig_img, path, names, boxes=None, masks=None, probs=None, keypoints=None, regression_preds = None, obb=None) -> None:
         """Initialize the Results class."""
         self.orig_img = orig_img
         self.orig_shape = orig_img.shape[:2]
@@ -103,6 +103,7 @@ class Results(SimpleClass):
         self.path = path
         self.save_dir = None
         self._keys = "boxes", "masks", "probs", "keypoints", "obb"
+        self.regression_preds = regression_preds
 
     def __getitem__(self, idx):
         """Return a Results object for the specified index."""

@@ -39,7 +39,7 @@ from ultralytics.nn.modules import (
     RepConv,
     ResNetLayer,
     RTDETRDecoder,
-    Segment,
+    Segment,ExtendedSegment,
 )
 from ultralytics.utils import DEFAULT_CFG_DICT, DEFAULT_CFG_KEYS, LOGGER, colorstr, emojis, yaml_load
 from ultralytics.utils.checks import check_requirements, check_suffix, check_yaml
@@ -361,6 +361,16 @@ class SegmentationModel(DetectionModel):
         """Initialize the loss criterion for the SegmentationModel."""
         return v8SegmentationLoss(self)
 
+
+class SegmentationRegModel(DetectionModel):
+    """YOLOv8 segmentation model."""
+
+    def __init__(self, cfg='yolov8n-segreg.yaml', ch=3, nc=None, verbose=True):
+        """Initialize YOLOv8 segmentation model with given config and parameters."""
+        super().__init__(cfg=cfg, ch=ch, nc=nc, verbose=verbose)
+
+    def init_criterion(self):
+        return v8SegmentationLoss(self)
 
 class PoseModel(DetectionModel):
     """YOLOv8 pose model."""
@@ -799,7 +809,7 @@ def parse_model(d, ch, verbose=True):  # model_dict, input_channels(3)
             args = [ch[f]]
         elif m is Concat:
             c2 = sum(ch[x] for x in f)
-        elif m in (Detect, Segment, Pose, OBB):
+        elif m in (Detect, Segment, ExtendedSegment, Pose, OBB):
             args.append([ch[x] for x in f])
             if m is Segment:
                 args[2] = make_divisible(min(args[2], max_channels) * width, 8)
@@ -886,6 +896,8 @@ def guess_model_task(model):
             return "pose"
         if m == "obb":
             return "obb"
+        if m == 'extendedsegment':
+            return 'segment'
 
     # Guess from model cfg
     if isinstance(model, dict):
@@ -917,6 +929,8 @@ def guess_model_task(model):
     if isinstance(model, (str, Path)):
         model = Path(model)
         if "-seg" in model.stem or "segment" in model.parts:
+            return 'segment'
+        elif '-segreg' in model.stem or 'segment' in model.parts:
             return "segment"
         elif "-cls" in model.stem or "classify" in model.parts:
             return "classify"

@@ -10,7 +10,7 @@ from ultralytics.utils.tal import RotatedTaskAlignedAssigner, TaskAlignedAssigne
 
 from .metrics import bbox_iou, probiou
 from .tal import bbox2dist
-
+import numpy as np
 
 class VarifocalLoss(nn.Module):
     """
@@ -256,8 +256,13 @@ class v8SegmentationLoss(v8DetectionLoss):
 
     def __call__(self, preds, batch):
         """Calculate and return the loss for the YOLO model."""
-        loss = torch.zeros(4, device=self.device)  # box, cls, dfl
-        feats, pred_masks, proto = preds if len(preds) == 3 else preds[1]
+        loss = torch.zeros(5, device=self.device)  # box, cls, dfl
+        if len(preds) ==3:
+            feats, pred_masks, proto = preds 
+        elif len(preds) ==4:
+            feats, pred_masks, proto, regression_tensor = preds
+        else:
+            feats, pred_masks, proto, regression_tensor = preds[1]
         batch_size, _, mask_h, mask_w = proto.shape  # batch size, number of masks, mask height, mask width
         pred_distri, pred_scores = torch.cat([xi.view(feats[0].shape[0], self.no, -1) for xi in feats], 2).split(
             (self.reg_max * 4, self.nc), 1
@@ -287,23 +292,32 @@ class v8SegmentationLoss(v8DetectionLoss):
                 "correctly formatted 'segment' dataset using 'data=coco8-seg.yaml' "
                 "as an example.\nSee https://docs.ultralytics.com/datasets/segment/ for help."
             ) from e
+        if 'regression_vars' in batch:
+            regression_targets = torch.tensor(np.array(batch['regression_vars'])).to(self.device).float()
 
         # Pboxes
         pred_bboxes = self.bbox_decode(anchor_points, pred_distri)  # xyxy, (b, h*w, 4)
-
-        _, target_bboxes, target_scores, fg_mask, target_gt_idx = self.assigner(
+        test_labels, target_bboxes, target_scores, fg_mask, target_gt_idx, regression_scores = self.assigner(
             pred_scores.detach().sigmoid(),
             (pred_bboxes.detach() * stride_tensor).type(gt_bboxes.dtype),
             anchor_points * stride_tensor,
             gt_labels,
             gt_bboxes,
-            mask_gt,
+            mask_gt, 
+            regression_targets,
         )
 
         target_scores_sum = max(target_scores.sum(), 1)
 
         # Cls loss
         # loss[1] = self.varifocal_loss(pred_scores, target_scores, target_labels) / target_scores_sum  # VFL way
+
+
+        if 'regression_vars' in batch:
+            regression_loss = F.mse_loss(regression_tensor.permute(0, 2, 1).contiguous(), regression_scores)
+        
+        loss[4] = regression_loss  # reg gain (assuming you've added this hyperparameter)
+
         loss[2] = self.bce(pred_scores, target_scores.to(dtype)).sum() / target_scores_sum  # BCE
 
         if fg_mask.sum():
@@ -329,12 +343,12 @@ class v8SegmentationLoss(v8DetectionLoss):
         # WARNING: lines below prevent Multi-GPU DDP 'unused gradient' PyTorch errors, do not remove
         else:
             loss[1] += (proto * 0).sum() + (pred_masks * 0).sum()  # inf sums may lead to nan loss
-
+       
+        
         loss[0] *= self.hyp.box  # box gain
         loss[1] *= self.hyp.box  # seg gain
         loss[2] *= self.hyp.cls  # cls gain
         loss[3] *= self.hyp.dfl  # dfl gain
-
         return loss.sum() * batch_size, loss.detach()  # loss(box, cls, dfl)
 
     @staticmethod

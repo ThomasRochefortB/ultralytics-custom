@@ -2,7 +2,7 @@
 
 from ultralytics.engine.model import Model
 from ultralytics.models import yolo
-from ultralytics.nn.tasks import ClassificationModel, DetectionModel, OBBModel, PoseModel, SegmentationModel
+from ultralytics.nn.tasks import ClassificationModel, DetectionModel, OBBModel, PoseModel, SegmentationModel, SegmentationRegModel
 
 
 class YOLO(Model):
@@ -30,6 +30,11 @@ class YOLO(Model):
                 "validator": yolo.segment.SegmentationValidator,
                 "predictor": yolo.segment.SegmentationPredictor,
             },
+            'segmentreg': {
+                'model': SegmentationRegModel,
+                'trainer': yolo.segment.SegmentationTrainer,
+                'validator': yolo.segment.SegmentationValidator,
+                'predictor': yolo.segment.SegmentationPredictor, },
             "pose": {
                 "model": PoseModel,
                 "trainer": yolo.pose.PoseTrainer,

@@ -36,7 +36,7 @@ class TaskAlignedAssigner(nn.Module):
         self.eps = eps
 
     @torch.no_grad()
-    def forward(self, pd_scores, pd_bboxes, anc_points, gt_labels, gt_bboxes, mask_gt):
+    def forward(self, pd_scores, pd_bboxes, anc_points, gt_labels, gt_bboxes, mask_gt, gt_regression):
         """
         Compute the task-aligned assignment. Reference code is available at
         https://github.com/Nioolek/PPYOLOE_pytorch/blob/master/ppyoloe/assigner/tal_assigner.py.
@@ -76,7 +76,7 @@ class TaskAlignedAssigner(nn.Module):
         target_gt_idx, fg_mask, mask_pos = self.select_highest_overlaps(mask_pos, overlaps, self.n_max_boxes)
 
         # Assigned target
-        target_labels, target_bboxes, target_scores = self.get_targets(gt_labels, gt_bboxes, target_gt_idx, fg_mask)
+        target_labels, target_bboxes, target_scores, regression_scores = self.get_targets(gt_labels, gt_bboxes, target_gt_idx, fg_mask, gt_regression)
 
         # Normalize
         align_metric *= mask_pos
@@ -85,7 +85,7 @@ class TaskAlignedAssigner(nn.Module):
         norm_align_metric = (align_metric * pos_overlaps / (pos_align_metrics + self.eps)).amax(-2).unsqueeze(-1)
         target_scores = target_scores * norm_align_metric
 
-        return target_labels, target_bboxes, target_scores, fg_mask.bool(), target_gt_idx
+        return target_labels, target_bboxes, target_scores, fg_mask.bool(), target_gt_idx, regression_scores
 
     def get_pos_mask(self, pd_scores, pd_bboxes, gt_labels, gt_bboxes, anc_points, mask_gt):
         """Get in_gts mask, (b, max_num_obj, h*w)."""
@@ -160,7 +160,7 @@ class TaskAlignedAssigner(nn.Module):
 
         return count_tensor.to(metrics.dtype)
 
-    def get_targets(self, gt_labels, gt_bboxes, target_gt_idx, fg_mask):
+    def get_targets(self, gt_labels, gt_bboxes, target_gt_idx, fg_mask, gt_regression):
         """
         Compute target labels, target bounding boxes, and target scores for the positive anchor points.
 
@@ -207,7 +207,10 @@ class TaskAlignedAssigner(nn.Module):
         fg_scores_mask = fg_mask[:, :, None].repeat(1, 1, self.num_classes)  # (b, h*w, 80)
         target_scores = torch.where(fg_scores_mask > 0, target_scores, 0)
 
-        return target_labels, target_bboxes, target_scores
+        target_regression = gt_regression.view(-1, 6)[target_gt_idx]
+
+
+        return target_labels, target_bboxes, target_scores, target_regression
 
     @staticmethod
     def select_candidates_in_gts(xy_centers, gt_bboxes, eps=1e-9):
