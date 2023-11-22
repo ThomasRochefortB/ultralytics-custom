@@ -48,7 +48,18 @@ from ultralytics.utils.torch_utils import (
     select_device,
     strip_optimizer,
 )
+import csv
+def log_to_csv(filename, average_grad_norm):
+    """Log the average gradient norm to a CSV file."""
+    file_exists = os.path.isfile(filename)
+    with open(filename, 'a', newline='') as csvfile:
+        fieldnames = ['average_grad_norm']
+        writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
 
+        if not file_exists:
+            writer.writeheader()  # Write header only once
+
+        writer.writerow({'average_grad_norm': average_grad_norm})
 
 class BaseTrainer:
     """
@@ -525,13 +536,53 @@ class BaseTrainer:
 
     def optimizer_step(self):
         """Perform a single step of the training optimizer with gradient clipping and EMA update."""
+        # for name, parameter in self.model.named_parameters():
+        #     if parameter.grad is not None:
+        #         grad_norm = parameter.grad.data.norm(2)  # L2 norm
+        #         print(f"Gradient norm for {name}: {grad_norm}")
+
         self.scaler.unscale_(self.optimizer)  # unscale gradients
+
         torch.nn.utils.clip_grad_norm_(self.model.parameters(), max_norm=10.0)  # clip gradients
         self.scaler.step(self.optimizer)
         self.scaler.update()
         self.optimizer.zero_grad()
         if self.ema:
             self.ema.update(self.model)
+
+    import csv
+    import os
+
+    # def optimizer_step(self):
+    #     """Perform a single step of the training optimizer with gradient clipping, EMA update, and logging average gradient norms to a CSV file."""
+
+    #     # Initialize variables to calculate average gradient norm
+    #     total_grad_norm = 0
+    #     parameter_count = 0
+
+    #     for name, parameter in self.model.named_parameters():
+    #         if parameter.grad is not None:
+    #             grad_norm = parameter.grad.data.norm(2)  # L2 norm
+    #             total_grad_norm += grad_norm
+    #             parameter_count += 1
+
+    #     # Calculate average gradient norm
+    #     average_grad_norm = total_grad_norm / parameter_count if parameter_count > 0 else 0
+
+    #     # Log to CSV file
+    #     log_to_csv('gradient_log.csv', average_grad_norm)
+
+    #     self.scaler.unscale_(self.optimizer)  # unscale gradients
+    #     torch.nn.utils.clip_grad_norm_(self.model.parameters(), max_norm=10.0)  # clip gradients
+    #     self.scaler.step(self.optimizer)
+    #     self.scaler.update()
+    #     self.optimizer.zero_grad()
+
+    #     if self.ema:
+    #         self.ema.update(self.model)
+
+   
+
 
     def preprocess_batch(self, batch):
         """Allows custom preprocessing model inputs and ground truths depending on task type."""

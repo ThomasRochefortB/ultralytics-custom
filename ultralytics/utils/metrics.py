@@ -876,17 +876,56 @@ class DetMetrics(SimpleClass):
     @property
     def results_dict(self):
         """Returns dictionary of computed performance metrics and statistics."""
-        return dict(zip(self.keys + ["fitness"], self.mean_results() + [self.fitness]))
+        return dict(zip(self.keys + ['fitness'], self.mean_results() + [self.fitness]))
 
-    @property
-    def curves(self):
-        """Returns a list of curves for accessing specific metrics curves."""
-        return ["Precision-Recall(B)", "F1-Confidence(B)", "Precision-Confidence(B)", "Recall-Confidence(B)"]
+class RegressionMetrics(SimpleClass):
+    """
+    Class for computing evaluation metrics for regression models.
+    
+    Attributes:
+        mae (np.ndarray): Mean Absolute Error for each vector element. Shape: (8, 6).
+        mse (np.ndarray): Mean Squared Error for each vector element. Shape: (8, 6).
 
-    @property
-    def curves_results(self):
-        """Returns dictionary of computed performance metrics and statistics."""
-        return self.box.curves_results
+    Methods:
+        mean_mae(): Mean MAE across all elements. Returns: Float.
+        mean_mse(): Mean MSE across all elements. Returns: Float.
+        update(y_true, y_pred): Update metric attributes with new evaluation results.
+    """
+    
+    def __init__(self) -> None:
+        self.mae = 1.0 
+        self.mse = 1.0
+
+    def mean_mae(self) -> float:
+        """
+        Returns the mean MAE across all elements.
+        
+        Returns:
+            (float): Mean MAE across all elements.
+        """
+        return np.mean(self.mae)
+
+    def mean_mse(self) -> float:
+        """
+        Returns the mean MSE across all elements.
+        
+        Returns:
+            (float): Mean MSE across all elements.
+        """
+        return np.mean(self.mse)
+    
+    def update(self, errors):
+        """
+        Update the MAE and MSE metrics with new data.
+        
+        Args:
+   
+        """
+        errors = np.array(errors)
+        self.mae = np.abs(errors).mean(axis=0)
+        self.mse = (errors**2).mean(axis=0)
+
+
 
 
 class SegmentMetrics(SimpleClass):
@@ -926,10 +965,13 @@ class SegmentMetrics(SimpleClass):
         self.names = names
         self.box = Metric()
         self.seg = Metric()
+        self.reg = RegressionMetrics()
+
+
         self.speed = {"preprocess": 0.0, "inference": 0.0, "loss": 0.0, "postprocess": 0.0}
         self.task = "segment"
 
-    def process(self, tp, tp_m, conf, pred_cls, target_cls):
+    def process(self, tp, tp_m, conf, pred_cls, target_cls, reg_error):
         """
         Processes the detection and segmentation metrics over the given set of predictions.
 
@@ -967,6 +1009,11 @@ class SegmentMetrics(SimpleClass):
         )[2:]
         self.box.nc = len(self.names)
         self.box.update(results_box)
+        
+        
+        self.reg.update(reg_error)
+
+
 
     @property
     def keys(self):
@@ -1008,7 +1055,7 @@ class SegmentMetrics(SimpleClass):
     @property
     def results_dict(self):
         """Returns results of object detection model for evaluation."""
-        return dict(zip(self.keys + ["fitness"], self.mean_results() + [self.fitness]))
+        return dict(zip(self.keys + ["fitness"] + ['mae'] + ['mse'] + ['error_1'], self.mean_results() + [self.fitness] + [self.reg.mean_mae()] + [1.0] + [1.0] ))
 
     @property
     def curves(self):

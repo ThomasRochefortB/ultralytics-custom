@@ -160,7 +160,7 @@ class TaskAlignedAssigner(nn.Module):
 
         return count_tensor.to(metrics.dtype)
 
-    def get_targets(self, gt_labels, gt_bboxes, target_gt_idx, fg_mask, gt_regression):
+    def get_targets(self, gt_labels, gt_bboxes, target_gt_idx, fg_mask, gt_regression=None):
         """
         Compute target labels, target bounding boxes, and target scores for the positive anchor points.
 
@@ -207,10 +207,21 @@ class TaskAlignedAssigner(nn.Module):
         fg_scores_mask = fg_mask[:, :, None].repeat(1, 1, self.num_classes)  # (b, h*w, 80)
         target_scores = torch.where(fg_scores_mask > 0, target_scores, 0)
 
-        target_regression = gt_regression.view(-1, 6)[target_gt_idx]
+        if gt_regression is not None:
+            target_regression = gt_regression.view(-1, 6)[target_gt_idx]
 
+            # Convert fg_mask to boolean type
+            fg_mask_bool = fg_mask.bool()
 
-        return target_labels, target_bboxes, target_scores, target_regression
+            # Now create fg_regression_mask
+            fg_regression_mask = fg_mask_bool.unsqueeze(-1).repeat(1, 1, 6)  # Expanding to shape (b, h*w, 6)
+
+            # Now apply masking to target_regression
+            target_regression = torch.where(fg_regression_mask, target_regression, torch.zeros_like(target_regression))
+
+            return target_labels, target_bboxes, target_scores, target_regression
+        else:
+            return target_labels, target_bboxes, target_scores, None
 
     @staticmethod
     def select_candidates_in_gts(xy_centers, gt_bboxes, eps=1e-9):

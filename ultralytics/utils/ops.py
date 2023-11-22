@@ -11,6 +11,7 @@ import torch
 import torch.nn.functional as F
 import torchvision
 
+
 from ultralytics.utils import LOGGER
 from ultralytics.utils.metrics import batch_probiou
 
@@ -234,7 +235,6 @@ def non_max_suppression(
 
     if regression_var is not None:
         saved_reg_var = [torch.zeros((0, 6), device=prediction.device)] * bs
-        print(regression_var)
         regression_var = regression_var.transpose(-1, -2)
 
     for xi, x in enumerate(prediction):  # image index, image inference

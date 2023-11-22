@@ -71,7 +71,8 @@ class SegmentationValidator(DetectionValidator):
 
     def postprocess(self, preds):
         """Post-processes YOLO predictions and returns output detections with proto."""
-        p = ops.non_max_suppression(
+        regression_preds = preds[1][-1]
+        p,final_reg = ops.non_max_suppression(
             preds[0],
             conf_thres=self.args.conf,
             iou_thres = self.args.iou,
@@ -79,6 +80,7 @@ class SegmentationValidator(DetectionValidator):
             multi_label=True,
             agnostic=self.args.single_cls,
             max_det=self.args.max_det,
+                                    regression_var=regression_preds,
             nc=self.nc,
         )
         
@@ -89,7 +91,9 @@ class SegmentationValidator(DetectionValidator):
             proto = preds[1][-2] 
         else:
             proto = preds[1]
-        return p, proto
+
+
+        return (p, proto),final_reg
 
     def _prepare_batch(self, si, batch):
         """Prepares a batch for training or inference by processing images and targets."""
@@ -104,9 +108,20 @@ class SegmentationValidator(DetectionValidator):
         pred_masks = self.process(proto, pred[:, 6:], pred[:, :4], shape=pbatch["imgsz"])
         return predn, pred_masks
 
-    def update_metrics(self, preds, batch):
+    def update_metrics(self, preds, batch, final_reg):
         """Metrics."""
         for si, (pred, proto) in enumerate(zip(preds[0], preds[1])):
+
+            
+            idx = batch['batch_idx'] == si
+            regression_targets = batch['regression_vars'][si]
+            reg_shape = regression_targets.shape
+            cls = batch['cls'][idx]
+            bbox = batch['bboxes'][idx]
+            nl, npr = cls.shape[0], pred.shape[0]  # number of labels, predictions
+            shape = batch['ori_shape'][si]
+            correct_masks = torch.zeros(npr, self.niou, dtype=torch.bool, device=self.device)  # init
+            correct_bboxes = torch.zeros(npr, self.niou, dtype=torch.bool, device=self.device)  # init
             self.seen += 1
             npr = len(pred)
             stat = dict(
@@ -119,14 +134,22 @@ class SegmentationValidator(DetectionValidator):
             cls, bbox = pbatch.pop("cls"), pbatch.pop("bbox")
             nl = len(cls)
             stat["target_cls"] = cls
+            regression_errors = torch.ones((npr,reg_shape[1]))
+            #print(nl,npr)
             if npr == 0:
                 if nl:
-                    for k in self.stats.keys():
-                        self.stats[k].append(stat[k])
+                    
+                    self.stats.append((correct_bboxes, correct_masks, *torch.zeros(
+                        (2, 0), device=self.device), cls.squeeze(-1),regression_errors))
                     if self.args.plots:
                         self.confusion_matrix.process_batch(detections=None, gt_bboxes=bbox, gt_cls=cls)
                 continue
-
+            
+            # for i in range(nl):
+            #     print(regression_targets[i].shape)
+            #     print(final_reg[i].shape)
+            #     print(regression_errors[i].shape)
+            #     regression_errors[i] = regression_targets[i] - final_reg[i].cpu().numpy()
             # Masks
             gt_masks = pbatch.pop("masks")
             # Predictions
@@ -147,9 +170,8 @@ class SegmentationValidator(DetectionValidator):
                 if self.args.plots:
                     self.confusion_matrix.process_batch(predn, bbox, cls)
 
-            for k in self.stats.keys():
-                self.stats[k].append(stat[k])
-
+            # Append correct_masks, correct_boxes, pconf, pcls, tcls
+            self.stats.append((correct_bboxes, correct_masks, pred[:, 4], pred[:, 5], cls.squeeze(-1),regression_errors))
             pred_masks = torch.as_tensor(pred_masks, dtype=torch.uint8)
             if self.args.plots and self.batch_i < 3:
                 self.plot_masks.append(pred_masks[:15].cpu())  # filter top 15 to plot

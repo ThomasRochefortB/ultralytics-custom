@@ -32,6 +32,28 @@ from ultralytics.utils import LOGGER, TQDM, callbacks, colorstr, emojis
 from ultralytics.utils.checks import check_imgsz
 from ultralytics.utils.ops import Profile
 from ultralytics.utils.torch_utils import de_parallel, select_device, smart_inference_mode
+from ultralytics.utils.loss import v8SegmentationLoss
+
+import torch
+
+def print_tensor_shapes(obj, level=0):
+    # Base case: If the object is a tensor, print its shape
+    if isinstance(obj, torch.Tensor):
+        print("  " * level + "-> Tensor Shape:", obj.shape)
+    # If it's a list or tuple, loop through each element
+    elif isinstance(obj, (list, tuple)):
+        print("  " * level + f"{type(obj).__name__}:")
+        for item in obj:
+            print_tensor_shapes(item, level + 1)
+    # If it's a dictionary, loop through each value
+    elif isinstance(obj, dict):
+        print("  " * level + "Dict:")
+        for key, value in obj.items():
+            print("  " * (level + 1) + f"Key: {key}")
+            print_tensor_shapes(value, level + 2)
+    else:
+        print("  " * level + f"Unsupported type: {type(obj)}")
+
 
 
 class BaseValidator:
@@ -99,7 +121,6 @@ class BaseValidator:
 
         self.plots = {}
         self.callbacks = _callbacks or callbacks.get_default_callbacks()
-
     @smart_inference_mode()
     def __call__(self, trainer=None, model=None):
         """Supports validation of a pre-trained model if passed or a model being trained if trainer is passed (trainer
@@ -171,8 +192,7 @@ class BaseValidator:
 
             self.run_callbacks("on_val_batch_start")
             self.batch_i = batch_i
-            if self.args.plots and batch_i < 3:
-                self.plot_val_samples(batch, batch_i)
+   
             # Preprocess
             with dt[0]:
                 batch = self.preprocess(batch)
@@ -188,15 +208,23 @@ class BaseValidator:
 
             # Postprocess
             with dt[3]:
-                preds = self.postprocess(preds)
+                
+                preds,final_reg = self.postprocess(preds)
+                # print('preds 0')
+                # print_tensor_shapes(preds[0])
+                # print('preds 1')
+                # print_tensor_shapes(preds[1])
+                #print_tensor_shapes(preds[1])
 
-            self.update_metrics(preds, batch)
+
+            self.update_metrics(preds, batch,final_reg)
             if self.args.plots and batch_i < 3:
-                # self.plot_val_samples(batch, batch_i)
+                self.plot_val_samples(batch, batch_i)
                 self.plot_predictions(batch, preds, batch_i)
 
             self.run_callbacks("on_val_batch_end")
         stats = self.get_stats()
+        print(stats)
         self.check_stats(stats)
         self.speed = dict(zip(self.speed.keys(), (x.t / len(self.dataloader.dataset) * 1e3 for x in dt)))
         self.finalize_metrics()
