@@ -117,16 +117,17 @@ class Segment(Detect):
 class ExtendedSegment(Segment):
     """Extends the Segment class to add a regression head predicting a 6D vector."""
 
-    def __init__(self, nc=80, nm=32, npr=256, ch=()):
+    def __init__(self, nc=80, nm=32, npr=256, nreg= 6, ch=()):
         super().__init__(nc, nm, npr, ch)
+        self.nreg = nreg
         self.regression_head = nn.ModuleList(nn.Sequential(
             Conv(x, max(x // 4, 128), 3),
-            nn.Conv2d(max(x // 4, 128), 6, 1),
+            nn.Conv2d(max(x // 4, 128), self.nreg , 1),
             nn.Sigmoid()
             ) for x in ch)  # Produces a 6D vector for each anchor and applies sigmoid activation
 
     def forward(self, x):
-        regression_outputs = [self.regression_head[i](x[i]).view(x[i].shape[0], 6, -1) for i in range(self.nl)]
+        regression_outputs = [self.regression_head[i](x[i]).view(x[i].shape[0], self.nreg, -1) for i in range(self.nl)]
         regression_tensor = torch.cat(regression_outputs, 2)
 
         # Call the parent's forward method to get original outputs and masks
