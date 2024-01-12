@@ -114,7 +114,7 @@ class Segment(Detect):
 
 
 
-class ExtendedSegment(Segment):
+class SegmentRegression(Segment):
     """Extends the Segment class to add a regression head predicting a 6D vector."""
 
     def __init__(self, nc=80, nm=32, npr=256, nreg= 6, ch=()):
@@ -145,59 +145,6 @@ class ExtendedSegment(Segment):
             else:
                 out_1, out_2 = outputs
                 return ((out_1,regression_tensor), (out_2[0],out_2[1],out_2[2], regression_tensor))
-
-# class BasicBlock(nn.Module):
-#     def __init__(self, in_channels, dropout_prob=0.0):
-#         super(BasicBlock, self).__init__()
-#         self.conv1 = nn.Conv2d(in_channels, in_channels, kernel_size=3, padding=1)
-#         self.bn1 = nn.BatchNorm2d(in_channels)
-#         self.relu = nn.ReLU(inplace=True)
-#         self.dropout1 = nn.Dropout2d(p=dropout_prob)  # First Dropout2D
-#         self.conv2 = nn.Conv2d(in_channels, in_channels, kernel_size=3, padding=1)
-#         self.bn2 = nn.BatchNorm2d(in_channels)
-#         self.dropout2 = nn.Dropout2d(p= dropout_prob)  # Second Dropout2D
-
-#     def forward(self, x):
-#         identity = x
-#         out = self.conv1(x)
-#         out = self.bn1(out)
-#         out = self.relu(out)
-#         out = self.dropout1(out)  # Applying first Dropout here
-#         out = self.conv2(out)
-#         out = self.bn2(out)
-#         out = self.dropout2(out)  # Applying second Dropout here
-#         out += identity
-#         out = self.relu(out)
-#         return out
-
-# class ExtendedSegment(Segment):
-#     def __init__(self, nc=80, nm=32, npr=256, ch=(), dropout_prob=0.0):
-#         super().__init__(nc, nm, npr, ch)
-#         self.regression_head = nn.ModuleList(
-#             nn.Sequential(
-#                 Conv(x, max(x // 4, 128), 3),  # Assuming Conv is defined elsewhere
-#                 BasicBlock(max(x // 4, 128), dropout_prob=dropout_prob),
-#                 nn.Conv2d(max(x // 4, 128), 6, 1),
-#                 nn.Sigmoid()
-#             ) for x in ch
-#         )
-
-
-#     def forward(self, x):
-#         regression_outputs = [self.regression_head[i](x[i]).view(x[i].shape[0], 6, -1) for i in range(self.nl)]
-#         regression_tensor = torch.cat(regression_outputs, 2)
-#         outputs = super().forward(x)
-
-#         if self.training:
-#             x, mc, p = outputs
-#             return x, mc, p, regression_tensor
-#         else:
-#             if self.export:
-#                 out_1, out_2 = outputs
-#                 return (out_1, out_2, regression_tensor)
-#             else:
-#                 out_1, out_2 = outputs
-#                 return ((out_1, regression_tensor), (out_2[0], out_2[1], out_2[2], regression_tensor))
     
 class Pose(Detect):
     """YOLOv8 Pose head for keypoints models."""
