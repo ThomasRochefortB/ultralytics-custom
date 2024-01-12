@@ -341,77 +341,27 @@ class v8SegmentationLoss(v8DetectionLoss):
         # Cls loss
         # loss[1] = self.varifocal_loss(pred_scores, target_scores, target_labels) / target_scores_sum  # VFL way
 
-        REG_LOSS = 'pixels'
         if 'regression_vars' in batch:
-            if REG_LOSS == 'direct':
-                # Assuming fg_mask has shape (b, h*w)
-                # Expand the dimensions of fg_mask to match regression_tensor
-                fg_regression_mask = fg_mask.unsqueeze(1).expand(-1, 6, -1)  # fg_regression_mask now has shape (BS, 6, 8400)
-                filtered_predictions = regression_tensor[fg_regression_mask]
-                #check if there are nans in regression_tensor:
-                
+            # Assuming fg_mask has shape (b, h*w)
+            # Expand the dimensions of fg_mask to match regression_tensor
+            fg_regression_mask = fg_mask.unsqueeze(1).expand(-1, 6, -1)  # fg_regression_mask now has shape (BS, 6, 8400)
+            filtered_predictions = regression_tensor[fg_regression_mask]            
 
-                filtered_target = regression_scores[fg_regression_mask.permute(0,2,1).contiguous()]
-                # Now create masked versions of your regression tensor and regression scores
-                #masked_regression_tensor = regression_tensor * fg_regression_mask
+            filtered_target = regression_scores[fg_regression_mask.permute(0,2,1).contiguous()]
+            # Now create masked versions of your regression tensor and regression scores
 
-                # Compute MSE loss on masked tensors
-                #regression_loss = F.mse_loss(masked_regression_tensor.permute(0, 2, 1).contiguous(), regression_scores,reduction="sum")
-                regression_loss = F.mse_loss(filtered_predictions, filtered_target,reduction="mean")
+            # Compute MSE loss on masked tensors
+            regression_loss = F.mse_loss(filtered_predictions, filtered_target,reduction="mean")
 
-                # Optionally, normalize the loss by the number of positive samples
-                # num_positive_samples = fg_mask.sum()
-                # if num_positive_samples > 0:
-                #     regression_loss /= num_positive_samples
-                # else:
-                #     # If there are no positive samples, set regression loss to zero
-                #     regression_loss = torch.tensor(0.0).to(fg_mask.device)
-            if (REG_LOSS == 'pixels' or REG_LOSS=="level") and self.hyp.reg_gain > 0:
-                # if torch.isnan(regression_tensor).any():
-                #     print("There are nans in regression_tensor")
-                #     sys.exit()
-                DW = 1.0
-                DH = 1.0
+            # Optionally, normalize the loss by the number of positive samples
+            # num_positive_samples = fg_mask.sum()
+            # if num_positive_samples > 0:
+            #     regression_loss /= num_positive_samples
+            # else:
+            #     # If there are no positive samples, set regression loss to zero
+            #     regression_loss = torch.tensor(0.0).to(fg_mask.device)
+            loss[4] = regression_loss * self.hyp.reg_gain
 
-                nelx = int(200 * DW)
-                nely = int(200 * DH)
-
-                x, y = torch.meshgrid(torch.linspace(0, DW, nelx+1), torch.linspace(0, DH, nely+1))
-                LSgrid = torch.stack((y.flatten(), x.flatten()), dim=0)
-
-                # xmax = torch.tensor([1.0, 1.0, 0.75, 0.2, 0.2, np.pi]).to('cuda')
-                # xmin = torch.tensor([0.0, 0.0, 0.01, 0.01, 0.01, 0.0]).to('cuda')
-
-                xmax = torch.tensor([1.0, 1.0, 1.0, 1.0, 0.2, 0.2]).to('cuda')
-                xmin = torch.tensor([0.0, 0.0, 0.0, 0.0, 0.01, 0.01]).to('cuda')
-                
-                xmax = xmax.unsqueeze(-1)
-                xmin = xmin.unsqueeze(-1)
-                xmax = xmax.unsqueeze(0).expand(batch_size, -1, -1)  # Shape: (8, 6, 1)
-                xmin = xmin.unsqueeze(0).expand(batch_size, -1, -1)  # Shape: (8, 6, 1)
-                unnormalized_preds = regression_tensor * (xmax - xmin) + xmin
-                # # # The design variables are infered from the two endpoints and the two thicknesses:
-                x_center = (unnormalized_preds[:, 0] + unnormalized_preds[:, 2]) / 2
-                y_center = (unnormalized_preds[:, 1] + unnormalized_preds[:, 3]) / 2
-
-                L = torch.sqrt((unnormalized_preds[:, 0] - unnormalized_preds[:, 2])**2 + 
-                            (unnormalized_preds[:, 1] - unnormalized_preds[:, 3])**2)
-
-                L = L+1e-4
-                t_1 = unnormalized_preds[:, 4]
-                t_2 = unnormalized_preds[:, 5]
-
-                epsilon = 1e-10
-                y_diff = unnormalized_preds[:, 3] - unnormalized_preds[:, 1] + epsilon
-                x_diff = unnormalized_preds[:, 2] - unnormalized_preds[:, 0] + epsilon
-                theta = torch.atan2(y_diff, x_diff)
-                formatted_variables = torch.cat((x_center.unsqueeze(1), 
-                                 y_center.unsqueeze(1), 
-                                 L.unsqueeze(1), 
-                                 t_1.unsqueeze(1), 
-                                 t_2.unsqueeze(1), 
-                                 theta.unsqueeze(1)), dim=1)
-        #print(pred_scores.shape,target_scores.shape) torch.Size([8, 8400, 1]) torch.Size([8, 8400, 1])
         loss[2] = self.bce(pred_scores, target_scores.to(dtype)).sum() / target_scores_sum  # BCE   
 
         if fg_mask.sum():
@@ -447,84 +397,7 @@ class v8SegmentationLoss(v8DetectionLoss):
                     test_bboxes = test_bboxes[i][fg_mask[i]]  / imgsz[[1, 0, 1, 0]]
                     # clip the test_bboxes between 0 and 1:
                     test_bboxes = torch.clip(test_bboxes,0,1)
-                    #parea = xyxy2xywh(test_bboxes)[:, 2:].prod(1)
-                    pxyxy = test_bboxes * torch.tensor([mask_w, mask_h, mask_w, mask_h], device=self.device)
-
-                    if (REG_LOSS == "pixels" or REG_LOSS=="level") and self.hyp.reg_gain > 0:
-
-                        # filtered_predictions = formatted_variables[i][:,fg_mask[i]]
-                        filtered_predictions = formatted_variables[i][:,fg_mask[i]]
-
-                        pred_phi , H_phi = calc_Phi(filtered_predictions,LSgrid.to('cuda'))
-                        if REG_LOSS == "level":
-                            pred_phi= torch.reshape(pred_phi,(nely+1,nelx+1,H_phi.shape[-1]))
-                            normalized = (pred_phi - pred_phi.min()) / (pred_phi.max() - pred_phi.min())
-                            cropped_gt_mask = crop_mask(gt_mask,pxyxy)
-
-                            normalized = normalized.permute(2, 0, 1).unsqueeze(1)  # Now the shape is ([80, 1, 51, 51])
-                            normalized = F.interpolate(normalized, size=cropped_gt_mask.shape[-2:], mode='nearest')
-                            
-                            level_loss = F.mse_loss(normalized.squeeze(1), cropped_gt_mask, reduction="mean")
-                            #Check if normalized and cropped_gt_mask contain nans:
-                            # if torch.isnan(normalized).any():
-                            #     print("There are nans in normalized")
-                            #     torch.save(regression_tensor, 'regression_tensor.pt')
-                            #     sys.exit()
-                            # if torch.isnan(cropped_gt_mask).any():
-                            #     print("There are nans in cropped_gt_mask")
-                            #     sys.exit()
-
-                            #level_loss = self.bceloss(normalized.squeeze(1), cropped_gt_mask)
-                            #Add a check if level_loss is nan:
-
-                
-
-                            loss[4]+=level_loss
-
-                        else:
-                            H_phi= torch.reshape(H_phi,(nely+1,nelx+1,H_phi.shape[-1]))
-                        
-                            # Rearrange H_phi to the shape ([batch_size, channels, height, width])
-                            H_phi = H_phi.permute(2, 0, 1).unsqueeze(1)  # Now the shape is ([80, 1, 51, 51])
-                            cropped_gt_mask = crop_mask(gt_mask,pxyxy)
-
-                            #H_phi_filtered = (H_phi_filtered> 0.5).float()
-                            # Use interpolate to resize
-                            H_phi_resized = F.interpolate(H_phi, size=cropped_gt_mask.shape[-2:], mode='nearest')
-                            # Rearrange H_phi_resized back to the shape ([height, width, batch_size])
-                            H_phi_resized = H_phi_resized.squeeze(1)  # Now the shape is ([80, 160, 160])
-
-                            #cropped_H_phi_resized = crop_mask(H_phi_resized,pxyxy)
-
-                            # Compute the Mean Squared Error
-                            #I want to save H_phi_resized and cropped_gt_mask and then use sys.exit() to stop the program
-                            # torch.save(cropped_gt_mask, 'cropped_gt_mask.pt')
-                            # torch.save(H_phi_resized, 'H_phi_resized.pt')
-                            # torch.save(gt_mask, 'gt_mask.pt')
-                            # torch.save(pxyxy, 'pxyxy.pt')
-                            # torch.save(mxyxy, 'mxyxy.pt')
-                            #sys.exit()
-                            #reg_loss = self.single_reg_loss( H_phi_resized, gt_mask, pxyxy, parea)
-                            # I also need to crop H_phi_resized to the same size as cropped_gt_mask
-
-                            #Check if normalized and cropped_gt_mask contain nans:
-                            # if torch.isnan(H_phi_resized).any():
-                            #     print("There are nans in normalized")
-                            #     torch.save(regression_tensor, 'regression_tensor.pt')
-                            #     sys.exit()
-                            # if torch.isnan(cropped_gt_mask).any():
-                            #     print("There are nans in cropped_gt_mask")
-                            #     sys.exit()
-                            #dice = F.mse_loss(H_phi_resized, cropped_gt_mask, reduction="mean")
-                            dice = self.diceloss(H_phi_resized, cropped_gt_mask)
-                            loss[4]+= dice
-
-                            # #check if loss is nan:
-                            # if torch.isnan(loss[4]).any():
-                            #     print("There are nans in loss[4]")
-                            #     sys.exit()
-
-
+    
                 # WARNING: lines below prevents Multi-GPU DDP 'unused gradient' PyTorch errors, do not remove
                 else:
                     loss[1] += (proto * 0).sum() + (pred_masks * 0).sum()  # inf sums may lead to nan loss
@@ -533,11 +406,7 @@ class v8SegmentationLoss(v8DetectionLoss):
         else:
             loss[1] += (proto * 0).sum() + (pred_masks * 0).sum()  # inf sums may lead to nan loss
             loss[4] += 0.0
-        if REG_LOSS =='direct':
-            loss[4] = regression_loss
-        else:
-            loss[4] *= self.hyp.reg_gain / batch_size
-
+       
         loss[0] *= self.hyp.box  # box gain
         loss[1] *= self.hyp.box  # seg gain
         loss[2] *= self.hyp.cls  # cls gain
