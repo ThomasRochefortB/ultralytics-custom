@@ -84,6 +84,34 @@ class Detect(nn.Module):
             a[-1].bias.data[:] = 1.0  # box
             b[-1].bias.data[:m.nc] = math.log(5 / m.nc / (640 / s) ** 2)  # cls (.01 objects, 80 classes, 640 img)
 
+class DetectRegression(Detect):
+    """Extends the Detect class to add a regression head predicting a vector."""
+
+    def __init__(self, nc=80, nreg=6, ch=()):
+        super().__init__(nc, ch)
+        self.nreg = nreg
+        # Regression head: Produces a vector for each anchor and applies an activation (e.g., sigmoid)
+        self.regression_head = nn.ModuleList(nn.Sequential(
+            Conv(x, max(x // 4, 128), 3),
+            nn.Conv2d(max(x // 4, 128), self.nreg, 1),
+            nn.Sigmoid()
+        ) for x in ch)
+
+    def forward(self, x):
+        # Call the parent's forward method to get the original outputs
+        detect_outputs = super().forward(x)
+
+        # Compute regression outputs
+        regression_outputs = [self.regression_head[i](x[i]).view(x[i].shape[0], self.nreg, -1) for i in range(self.nl)]
+        regression_tensor = torch.cat(regression_outputs, 2)
+
+        # Decide how to return based on training or export mode
+        if self.training:
+            return detect_outputs, regression_tensor
+        elif self.export:
+            return detect_outputs, regression_tensor  # Adjust as per export format requirements
+        else:
+            return detect_outputs, regression_tensor  # Adjust as needed
 
 
 
