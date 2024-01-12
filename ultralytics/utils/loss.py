@@ -12,44 +12,6 @@ from .metrics import bbox_iou, probiou
 from .tal import bbox2dist
 import numpy as np
 import sys
-#torch.autograd.set_detect_anomaly(True)
-class CustomDiceLoss(nn.Module):
-    def __init__(self, weight=None, size_average=True):
-        super(CustomDiceLoss, self).__init__()
-        self.size_average = size_average
-    def forward(self, inputs, targets, smooth=1):
-        
-        # If your model contains a sigmoid or equivalent activation layer, comment this line
-        #inputs = F.sigmoid(inputs)       
-      
-        # Check if the input tensors are of expected shape
-        if inputs.shape != targets.shape:
-            raise ValueError("Shape mismatch: inputs and targets must have the same shape")
-
-        # Compute Dice loss for each sample in the batch
-        dice_loss_values = []
-        for input_sample, target_sample in zip(inputs, targets):
-            
-            # Flatten tensors for each sample
-            input_sample = input_sample.view(-1)
-            target_sample = target_sample.view(-1)
-
-            intersection = (input_sample * target_sample).sum()
-            dice = (2. * intersection + smooth) / (input_sample.sum() + target_sample.sum() + smooth)
-            
-            dice_loss_values.append(1 - dice)
-
-        # Convert list of Dice loss values to a tensor
-        dice_loss_values = torch.stack(dice_loss_values)
-
-        # If you want the average loss over the batch to be returned
-        if self.size_average:
-            return dice_loss_values.mean()
-        else:
-            # If you want individual losses for each sample in the batch
-            return dice_loss_values
-
-
 
 def display_shape(input_item, prefix=""):
     # If the input_item is a list or a tuple, iterate through its elements
@@ -63,65 +25,6 @@ def display_shape(input_item, prefix=""):
         print(f"{prefix}: {input_item.shape}")
     else:
         print(f"Unsupported type {type(input_item)} at {prefix}")
-
-import numpy as np
-import torch.nn.functional as F
-
-
-def Heaviside(phi, alpha, epsilon):
-    device = phi.device  # Get the device of phi
-
-    # For values outside of [-epsilon, epsilon]
-    H_positive = torch.ones_like(phi, device=device) 
-    H_negative = alpha * torch.ones_like(phi, device=device)
-
-    # For values inside [-epsilon, epsilon]
-    default = 3 * (1 - alpha) / 4 * (phi / epsilon - phi**3 / (3 * epsilon**3)) + (1 + alpha) / 2
-
-    # Construct Heavisidve using conditions
-    H = torch.where(phi > epsilon, H_positive, torch.where(phi < -epsilon, H_negative, default))
-
-    return H
-def smooth_heaviside(phi, alpha, epsilon):
-    # Scale and shift phi for the sigmoid function
-    scaled_phi = (phi - alpha) / epsilon
-    
-    # Apply the sigmoid function
-    H = torch.sigmoid(scaled_phi)
-
-    return H
-
-def calc_Phi(variable, LSgrid):
-    device = variable.device  # Get the device of the variable
-
-    x0 = variable[0]
-    y0 = variable[1]
-    L = variable[2]
-    t1 = variable[3]
-    t2 = variable[4]
-    angle = variable[5]
-
-    # Rotation
-    st = torch.sin(angle)
-    ct = torch.cos(angle)
-    x1 = ct * (LSgrid[0][:, None].to(device) - x0) + st * (LSgrid[1][:, None].to(device) - y0) 
-    y1 = -st * (LSgrid[0][:, None].to(device) - x0) + ct * (LSgrid[1][:, None].to(device) - y0)
-
-    # Regularized hyperellipse equation
-    a = L / 2  # Semi-major axis
-    b = (t1 + t2) / 2  # Semi-minor axis
-    small_constant = 1e-9  # To avoid division by zero
-    temp = ((x1 / (a + small_constant))**6) + ((y1 / (b + small_constant))**6)
-
-    # # Ensuring the hyperellipse shape
-    allPhi = 1 - (temp + small_constant)**(1/6)
-
-    # # Call Heaviside function with allPhi
-    alpha = torch.tensor(1e-9, device=device, dtype=torch.float32)
-    epsilon = torch.tensor(0.01, device=device, dtype=torch.float32)
-    H_phi = smooth_heaviside(allPhi, alpha, epsilon)
-    return allPhi, H_phi
-
 
 
 class VarifocalLoss(nn.Module):
