@@ -167,5 +167,7 @@ pnnx*
 /ultralytics/yolo_dataset_random_designvariables/
 /ultralytics/yolo_opt_final/
 /ultralytics/yolo_dataset/
+/ultralytics/test.ipynb
+/ultralytics/KITTI_dataset/
 
 
