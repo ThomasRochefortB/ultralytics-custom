@@ -13,7 +13,7 @@ from .conv import Conv
 from .transformer import MLP, DeformableTransformerDecoder, DeformableTransformerDecoderLayer
 from .utils import bias_init_with_prob, linear_init_
 
-__all__ = 'Detect', 'Segment','ExtendedSegment' ,'Pose', 'Classify', 'RTDETRDecoder'
+__all__ = 'Detect', 'DetectRegression', 'Segment','SegmentRegression' ,'Pose', 'Classify', 'RTDETRDecoder'
 
 
 class Detect(nn.Module):
@@ -172,6 +172,35 @@ class SegmentRegression(Segment):
             else:
                 out_1, out_2 = outputs
                 return ((out_1,regression_tensor), (out_2[0],out_2[1],out_2[2], regression_tensor))
+class OBB(Detect):
+    """YOLOv8 OBB detection head for detection with rotation models."""
+
+    def __init__(self, nc=80, ne=1, ch=()):
+        """Initialize OBB with number of classes `nc` and layer channels `ch`."""
+        super().__init__(nc, ch)
+        self.ne = ne  # number of extra parameters
+        self.detect = Detect.forward
+
+        c4 = max(ch[0] // 4, self.ne)
+        self.cv4 = nn.ModuleList(nn.Sequential(Conv(x, c4, 3), Conv(c4, c4, 3), nn.Conv2d(c4, self.ne, 1)) for x in ch)
+
+    def forward(self, x):
+        """Concatenates and returns predicted bounding boxes and class probabilities."""
+        bs = x[0].shape[0]  # batch size
+        angle = torch.cat([self.cv4[i](x[i]).view(bs, self.ne, -1) for i in range(self.nl)], 2)  # OBB theta logits
+        # NOTE: set `angle` as an attribute so that `decode_bboxes` could use it.
+        angle = (angle.sigmoid() - 0.25) * math.pi  # [-pi/4, 3pi/4]
+        # angle = angle.sigmoid() * math.pi / 2  # [0, pi/2]
+        if not self.training:
+            self.angle = angle
+        x = self.detect(self, x)
+        if self.training:
+            return x, angle
+        return torch.cat([x, angle], 1) if self.export else (torch.cat([x[0], angle], 1), (x[1], angle))
+
+    def decode_bboxes(self, bboxes):
+        """Decode rotated bounding boxes."""
+        return dist2rbox(self.dfl(bboxes), self.angle, self.anchors.unsqueeze(0), dim=1) * self.strides
     
 class Pose(Detect):
     """YOLOv8 Pose head for keypoints models."""

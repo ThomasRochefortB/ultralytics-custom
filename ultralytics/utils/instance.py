@@ -231,6 +231,7 @@ class Instances:
         self._bboxes.mul(scale=(scale_w, scale_h, scale_w, scale_h))
         if bbox_only:
             return
+        
         self.segments[..., 0] *= scale_w
         self.segments[..., 1] *= scale_h
         if self.keypoints is not None:

@@ -109,6 +109,7 @@ class BaseMixTransform:
         indexes = self.get_indexes()
         if isinstance(indexes, int):
             indexes = [indexes]
+
         # Get images information will be used for Mosaic or MixUp
         mix_labels = [self.dataset.get_image_and_label(i) for i in indexes]
 
@@ -116,6 +117,7 @@ class BaseMixTransform:
             for i, data in enumerate(mix_labels):
                 mix_labels[i] = self.pre_transform(data)
         labels["mix_labels"] = mix_labels
+
         # Mosaic or MixUp
         labels = self._mix_transform(labels)
         labels.pop("mix_labels", None)

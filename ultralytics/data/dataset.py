@@ -64,7 +64,7 @@ class YOLODataset(BaseDataset):
                                 iterable=zip(self.im_files, self.label_files, repeat(self.prefix),
                                             repeat(self.use_keypoints), repeat(len(self.data['names'])), repeat(nkpt),
                                             repeat(ndim)))
-            pbar = tqdm(results, desc=desc, total=total, bar_format=TQDM_BAR_FORMAT)
+            pbar = TQDM(results, desc=desc, total=total)
             # Change the unpacking here to include regression_vars
             for im_file, lb, shape, segments, regression_vars, keypoint, nm_f, nf_f, ne_f, nc_f, msg in pbar:
                 nm += nm_f
