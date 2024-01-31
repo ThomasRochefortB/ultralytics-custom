@@ -8,13 +8,12 @@ import torch.nn as nn
 from torch.nn.init import constant_, xavier_uniform_
 
 from ultralytics.utils.tal import TORCH_1_10, dist2bbox, dist2rbox, make_anchors
-
 from .block import DFL, Proto
 from .conv import Conv
 from .transformer import MLP, DeformableTransformerDecoder, DeformableTransformerDecoderLayer
 from .utils import bias_init_with_prob, linear_init_
 
-__all__ = "Detect", "Segment", "Pose", "Classify", "OBB", "RTDETRDecoder"
+__all__ = 'Detect', 'DetectRegression', 'Segment','SegmentRegression' ,'Pose', 'Classify', 'RTDETRDecoder'
 
 
 class Detect(nn.Module):
@@ -72,6 +71,7 @@ class Detect(nn.Module):
             dbox = dist2bbox(self.dfl(box) * norm, self.anchors.unsqueeze(0) * norm[:, :2], xywh=True, dim=1)
 
         y = torch.cat((dbox, cls.sigmoid()), 1)
+
         return y if self.export else (y, x)
 
     def bias_init(self):
@@ -81,13 +81,38 @@ class Detect(nn.Module):
         # ncf = math.log(0.6 / (m.nc - 0.999999)) if cf is None else torch.log(cf / cf.sum())  # nominal class frequency
         for a, b, s in zip(m.cv2, m.cv3, m.stride):  # from
             a[-1].bias.data[:] = 1.0  # box
-            b[-1].bias.data[: m.nc] = math.log(5 / m.nc / (640 / s) ** 2)  # cls (.01 objects, 80 classes, 640 img)
-
-    def decode_bboxes(self, bboxes):
-        """Decode bounding boxes."""
-        return dist2bbox(self.dfl(bboxes), self.anchors.unsqueeze(0), xywh=True, dim=1) * self.strides
+            b[-1].bias.data[:m.nc] = math.log(5 / m.nc / (640 / s) ** 2)  # cls (.01 objects, 80 classes, 640 img)
 
 
+class DetectRegression(Detect):
+    """Extends the Segment class to add a regression head predicting a 6D vector."""
+
+    def __init__(self, nc=80, nreg=1, ch=()):
+        """Initialize OBB with number of classes `nc` and layer channels `ch`."""
+        super().__init__(nc, ch)
+        self.nreg = nreg  # number of extra parameters
+        self.detect = Detect.forward
+
+        c4 = max(ch[0] // 4, self.nreg)
+        self.cv4 = nn.ModuleList(nn.Sequential(
+            Conv(x, c4, 3), 
+            Conv(c4, c4, 3), 
+            nn.Conv2d(c4, self.nreg, 1)) for x in ch)
+
+    def forward(self, x):
+        """Concatenates and returns predicted bounding boxes and class probabilities."""
+        bs = x[0].shape[0]  # batch size
+        regression_output = torch.cat([self.cv4[i](x[i]).view(bs, self.nreg, -1) for i in range(self.nl)], 2)  # OBB theta logits
+        # NOTE: set `angle` as an attribute so that `decode_bboxes` could use it.
+        # angle = angle.sigmoid() * math.pi / 2  # [0, pi/2]
+
+        x = self.detect(self, x)
+        if self.training:
+            return x, regression_output
+        return torch.cat([x, regression_output], 1) if self.export else (torch.cat([x[0], regression_output], 1), (x[1], regression_output))
+
+
+        
 class Segment(Detect):
     """YOLOv8 Segment head for segmentation models."""
 
@@ -113,7 +138,34 @@ class Segment(Detect):
             return x, mc, p
         return (torch.cat([x, mc], 1), p) if self.export else (torch.cat([x[0], mc], 1), (x[1], mc, p))
 
+class SegmentRegression(Segment):
+    """Extends the Segment class to add a regression head predicting a vector."""
 
+    def __init__(self, nc=80, nm=32, npr=256, nreg= 6, ch=()):
+        super().__init__(nc, nm, npr, ch)
+        self.nreg = nreg
+        self.regression_head = nn.ModuleList(nn.Sequential(
+            Conv(x, max(x // 4, 128), 3),
+            nn.Conv2d(max(x // 4, 128), self.nreg , 1)
+            ) for x in ch)  
+
+    def forward(self, x):
+        regression_outputs = [self.regression_head[i](x[i]).view(x[i].shape[0], self.nreg, -1) for i in range(self.nl)]
+        regression_tensor = torch.cat(regression_outputs, 2)
+        # Call the parent's forward method to get original outputs and masks
+        outputs = super().forward(x)
+        if self.training:
+            x, mc, p = outputs
+            return x, mc, p, regression_tensor
+
+        else:
+            if self.export:
+                out_1, out_2 = outputs
+                return (out_1, out_2, regression_tensor)  
+            else:
+                out_1, out_2 = outputs
+                return ((out_1,regression_tensor), (out_2[0],out_2[1],out_2[2], regression_tensor))
+            
 class OBB(Detect):
     """YOLOv8 OBB detection head for detection with rotation models."""
 
@@ -143,8 +195,7 @@ class OBB(Detect):
     def decode_bboxes(self, bboxes):
         """Decode rotated bounding boxes."""
         return dist2rbox(self.dfl(bboxes), self.angle, self.anchors.unsqueeze(0), dim=1) * self.strides
-
-
+    
 class Pose(Detect):
     """YOLOv8 Pose head for keypoints models."""
 

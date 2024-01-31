@@ -52,7 +52,7 @@ from .conv import (
     RepConv,
     SpatialAttention,
 )
-from .head import OBB, Classify, Detect, Pose, RTDETRDecoder, Segment
+from .head import OBB, Classify, Detect, DetectRegression, Pose, RTDETRDecoder, Segment, SegmentRegression
 from .transformer import (
     AIFI,
     MLP,
@@ -101,7 +101,9 @@ __all__ = (
     "BottleneckCSP",
     "Proto",
     "Detect",
+    "DetectRegression",
     "Segment",
+    "SegmentRegression",
     "Pose",
     "Classify",
     "TransformerEncoderLayer",

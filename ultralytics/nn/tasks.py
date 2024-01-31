@@ -27,6 +27,7 @@ from ultralytics.nn.modules import (
     Conv2,
     ConvTranspose,
     Detect,
+    DetectRegression,
     DWConv,
     DWConvTranspose2d,
     Focus,
@@ -40,6 +41,7 @@ from ultralytics.nn.modules import (
     ResNetLayer,
     RTDETRDecoder,
     Segment,
+    SegmentRegression,
 )
 from ultralytics.utils import DEFAULT_CFG_DICT, DEFAULT_CFG_KEYS, LOGGER, colorstr, emojis, yaml_load
 from ultralytics.utils.checks import check_requirements, check_suffix, check_yaml
@@ -281,10 +283,10 @@ class DetectionModel(BaseModel):
 
         # Build strides
         m = self.model[-1]  # Detect()
-        if isinstance(m, (Detect, Segment, Pose, OBB)):
+        if isinstance(m, (Detect,DetectRegression, Segment, Pose, OBB)):
             s = 256  # 2x min stride
             m.inplace = self.inplace
-            forward = lambda x: self.forward(x)[0] if isinstance(m, (Segment, Pose, OBB)) else self.forward(x)
+            forward = lambda x: self.forward(x)[0] if isinstance(m, (Segment, Pose, OBB,DetectRegression)) else self.forward(x)
             m.stride = torch.tensor([s / x.shape[-2] for x in forward(torch.zeros(1, ch, s, s))])  # forward
             self.stride = m.stride
             m.bias_init()  # only run once
@@ -337,6 +339,16 @@ class DetectionModel(BaseModel):
         """Initialize the loss criterion for the DetectionModel."""
         return v8DetectionLoss(self)
 
+class DetectionRegressionModel(DetectionModel):
+    """"YOLOv8 Detection + Regression model."""
+
+    def __init__(self, cfg="yolov8n-detreg.yaml", ch=3, nc=None, verbose=True):
+        """Initialize YOLOv8 detect_reg model with given config and parameters."""
+        super().__init__(cfg=cfg, ch=ch, nc=nc, verbose=verbose)
+
+    def init_criterion(self):
+        """Initialize the loss criterion for the model."""
+        return v8DetectionLoss(self)
 
 class OBBModel(DetectionModel):
     """"YOLOv8 Oriented Bounding Box (OBB) model."""
@@ -360,6 +372,18 @@ class SegmentationModel(DetectionModel):
     def init_criterion(self):
         """Initialize the loss criterion for the SegmentationModel."""
         return v8SegmentationLoss(self)
+    
+class SegmentationRegressionModel(DetectionModel):
+    """YOLOv8 segmentation-regression model."""
+
+    def __init__(self, cfg="yolov8n-segreg.yaml", ch=3, nc=None, verbose=True):
+        """Initialize YOLOv8 segmentation-regression model with given config and parameters."""
+        super().__init__(cfg=cfg, ch=ch, nc=nc, verbose=verbose)
+
+    def init_criterion(self):
+        """Initialize the loss criterion for the SegmentationModel."""
+        return v8SegmentationLoss(self)
+
 
 
 class PoseModel(DetectionModel):
@@ -780,7 +804,6 @@ def parse_model(d, ch, verbose=True):  # model_dict, input_channels(3)
             c1, c2 = ch[f], args[0]
             if c2 != nc:  # if c2 not equal to number of classes (i.e. for Classify() output)
                 c2 = make_divisible(min(c2, max_channels) * width, 8)
-
             args = [c1, c2, *args[1:]]
             if m in (BottleneckCSP, C1, C2, C2f, C3, C3TR, C3Ghost, C3x, RepC3):
                 args.insert(2, n)  # number of repeats
@@ -799,7 +822,7 @@ def parse_model(d, ch, verbose=True):  # model_dict, input_channels(3)
             args = [ch[f]]
         elif m is Concat:
             c2 = sum(ch[x] for x in f)
-        elif m in (Detect, Segment, Pose, OBB):
+        elif m in (Detect, Segment, Pose, OBB,DetectRegression,SegmentRegression):
             args.append([ch[x] for x in f])
             if m is Segment:
                 args[2] = make_divisible(min(args[2], max_channels) * width, 8)
@@ -882,6 +905,10 @@ def guess_model_task(model):
             return "detect"
         if m == "segment":
             return "segment"
+        if m == "segmentregression":
+            return "segmentregression"
+        if m == "detectregression":
+            return "detectregression"
         if m == "pose":
             return "pose"
         if m == "obb":
@@ -904,8 +931,12 @@ def guess_model_task(model):
         for m in model.modules():
             if isinstance(m, Detect):
                 return "detect"
+            elif isinstance(m,DetectRegression):
+                return "detectregression"
             elif isinstance(m, Segment):
                 return "segment"
+            elif isinstance(m,SegmentRegression):
+                return "segmentregression"
             elif isinstance(m, Classify):
                 return "classify"
             elif isinstance(m, Pose):
@@ -918,6 +949,10 @@ def guess_model_task(model):
         model = Path(model)
         if "-seg" in model.stem or "segment" in model.parts:
             return "segment"
+        elif "-segreg" in model.stem or "segmentregression" in model.parts:
+            return "segmentregression"
+        elif "-detreg" in model.stem or "detectregression" in model.parts:
+            return "detectregression"
         elif "-cls" in model.stem or "classify" in model.parts:
             return "classify"
         elif "-pose" in model.stem or "pose" in model.parts:
